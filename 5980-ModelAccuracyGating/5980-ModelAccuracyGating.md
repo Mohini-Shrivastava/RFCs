@@ -2,9 +2,7 @@
 
 **Authors**
 
- ### Mohini Shrivastava
- ### Antoni Viros i Martin
- ### Ajit Samuel John
+ **** Mohini Shrivastava  Antoni Viros i Martin Ajit Samuel John ****
 
 Tracking issue: (https://github.com/torch-spyre/torch-spyre/issues/5980)
 
