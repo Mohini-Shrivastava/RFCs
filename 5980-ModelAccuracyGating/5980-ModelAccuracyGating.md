@@ -1,10 +1,10 @@
 # RFC: Model Quality Gating and Production Workload Accuracy Framework for IBM Z + Spyre
 
-Authors:
+**Authors**
 
-Mohini Shrivastava
-Antoni Viros i Martin
-Ajit Samuel John
+ ### Mohini Shrivastava
+ ### Antoni Viros i Martin
+ ### Ajit Samuel John
 
 Tracking issue: (https://github.com/torch-spyre/torch-spyre/issues/5980)
 
@@ -67,7 +67,6 @@ The gating framework validates the following production deployment profiles on I
 | Use Case | Model | Modality / Shape | Batch Size | Prompt Tokens | Decode Tokens |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Image Captioning at Ingest** | `Granite Vision 3.3-2B` | Multimodal (image + text) | 1 | $\sim 8\text{ text tokens}$ (`"<image>\nDescribe this image in detail:"`) + image tokens | 100 (`max_new_tokens`) |
-| **Image Captioning Fallback** | `BLIP` | Image-only | 1 | Image tokens only | 50 (`max_length`) |
 | **Document & Query Embedding**| `Granite Embedding 278M multilingual` | Text-only | Per chunk | Chunk size (`CHUNK_SIZE=25`, `CHUNK_OVERLAP=4`) | None (embedding vector only) |
 
 ---
@@ -127,7 +126,7 @@ Applying the generic archetypes to current enterprise production workloads on IB
 | **LLM Explainability** | `UC-ARCH-06` | Gemma 26B, Granite 8B | `gsm8k`, `TruthfulQA`, `HellaSwag` | Standard Reasoning Suite | TruthfulQA $\ge 32\%$, HellaSwag $\ge 50\%$, Zero token truncation at 1024 |
 | **Document Summarization** | `UC-ARCH-04` | Granite 8B | `xsum` | Summarization Gate | ROUGE-1 $\ge 0.26$, METEOR $\ge 0.20$, No degenerate repetition on 768 tokens |
 | **Text & Multimodal RAG Q&A** | `UC-ARCH-05` | Granite 8B, Granite Vision | `squad`, `custom_jsonl`, `SciFact` | Extractive QA & IR Gate | SQuAD EM $\ge 0.55$, SciFact nDCG@10 $\ge 0.62$, Context window stability up to 5k tokens |
-| **Image Ingestion Captioning**| `UC-ARCH-07` | Granite Vision 2B, BLIP | `coco_retrieval`, `docvqa` | Ingestion Captioning Gate | Recall@1 $\ge 0.60$, Zero HTTP 500 errors on 100 max new tokens |
+| **Image Ingestion Captioning**| `UC-ARCH-07` | Granite Vision 3.3-2B | `coco_retrieval`, `docvqa` | Ingestion Captioning Gate | Recall@1 $\ge 0.60$, Zero HTTP 500 errors on 100 max new tokens |
 | **Document Vector Embedding** | `UC-ARCH-08` | Granite Embedding 278M | `NFCorpus`, `SciFact`, `STSBenchmark` | MTEB Embedding Gate | Cosine Sim $\ge 0.9990$, STS $\rho \ge 0.78$, Parity delta $\le 0.005$ |
 
 ---
@@ -146,8 +145,24 @@ Applying the generic archetypes to current enterprise production workloads on IB
 
 ### 6.1 Multimodal Vision Quality Flowchart
 
-![Vision Quality Gating Flowchart](vision_quality_gating_flow.png)
-
+```mermaid
+flowchart TD
+    A[Start Vision Release Gate Run] --> B[Run Benchmark: DocVQA, ChartQA, MMMU]
+    B --> C{Sample Size Check}
+    C -->|< 100 Samples| D[Warning: Flag as Indicative / Smoke Test Only]
+    C -->|≥ 250 Samples| E[Valid Statistical Certification]
+    
+    E --> F{1. Absolute Quality Gate}
+    F -->|DocVQA ANLS < 0.80| R1[FAIL: Quality Below Threshold]
+    F -->|ChartQA ANLS < 0.45| R1
+    F -->|MMMU Accuracy < 0.38| R1
+    F -->|DocVQA Hallucination > 4%| R2[FAIL: Excessive Hallucination Rate]
+    
+    F -->|Pass| G{2. Release Parity vs Baseline}
+    G -->|Δ ANLS > 1.5%| R3[FAIL: Hardware / Image Regression]
+    G -->|Δ Accuracy > 2.0 pp| R3
+    G -->|Δ Score ≤ Tolerance| H[PASS: Sign-off for Production / Release Promotion]
+```
 
 #### Vision Accuracy Gating Thresholds
 | Benchmark Task | Primary Metric | Secondary Metric | Pass Threshold (Gemma 26B) | Pass Threshold (Granite 4B) | Target Tier |
@@ -161,7 +176,46 @@ Applying the generic archetypes to current enterprise production workloads on IB
 
 ### 6.2 Textual Quality Flowchart
 
-![Textual Quality Gating Flowchart](textual_quality_gating_flow.png)
+```mermaid
+flowchart TD
+    %% Entry Point
+    START([Start Textual Model Quality Gate Run]) --> TYPE{Select Model Architecture Track}
+
+    %% Track 1: Generative Decoders
+    TYPE -->|Generative Decoders<br/>e.g. Gemma 26B, Granite Instruct| DEC_RUN[Run Quality Pipeline Suite<br/>• squad, triviaqa, gsm8k, xsum, wmt<br/>• n ≥ 200 samples, seed 42]
+    
+    %% Track 2: Reasoning & Knowledge (LM-Eval)
+    TYPE -->|Reasoning & MCQ<br/>lm-eval-harness| LM_RUN[Run LM-Evaluation Suite<br/>• ARC-Easy, ARC-Challenge<br/>• HellaSwag, TruthfulQA, MMLU<br/>• 5-shot local completions]
+
+    %% Track 3: Embedding Encoders
+    TYPE -->|Embedding Encoders / MTEB<br/>e.g. Granite Embedding, MiniLM| EMB_RUN[Run MTEB Benchmark Suite<br/>• NFCorpus, SciFact IR<br/>• STS12, STSBenchmark STS<br/>• Banking77, ArxivClustering]
+
+    %% Generative Quality Gates
+    DEC_RUN --> DEC_SLA{1. Free-Text Quality Gate<br/>• squad EM ≥ 0.55 & ROUGE1 ≥ 0.80<br/>• gsm8k EM ≥ 0.48<br/>• triviaqa EM ≥ 0.45<br/>• xsum ROUGE1 ≥ 0.26<br/>• wmt METEOR ≥ 0.40}
+    DEC_SLA -->|No| FAIL_DEC[FAIL: Generative SLA Miss]
+    DEC_SLA -->|Yes| DEC_PAR{2. Baseline Parity Check<br/>Spyre vs CPU PyTorch<br/>• Mean Score Δ ≤ 1.5%<br/>• Greedy Token Alignment ≥ 99.5%}
+    DEC_PAR -->|No| FAIL_PAR[FAIL: Accelerator Parity Regression]
+    DEC_PAR -->|Yes| OPS_CHECK[3. Operational Stability Gate<br/>• 100% Request Completion<br/>• Zero Engine Restarts / Crashes<br/>• Throughput ≥ 3.5 tok/s]
+
+    %% LM-Eval Reasoning Gates
+    LM_RUN --> LM_SLA{1. LM-Eval Accuracy Gate<br/>• ARC-Easy acc_norm ≥ 62.0%<br/>• HellaSwag acc_norm ≥ 50.0%<br/>• ARC-Challenge acc_norm ≥ 38.0%<br/>• TruthfulQA acc ≥ 32.0%}
+    LM_SLA -->|No| FAIL_LM[FAIL: Reasoning Accuracy Miss]
+    LM_SLA -->|Yes| LM_PAR{2. RC Release Check<br/>RC_N vs RC_N-1<br/>• Δ acc_norm ≤ 2.0 pp}
+    LM_PAR -->|No| FAIL_LM_REG[FAIL: Release Regression]
+    LM_PAR -->|Yes| OPS_CHECK
+
+    %% MTEB Embedding Gates
+    EMB_RUN --> EMB_SLA{1. MTEB Quality Gate<br/>• STSBenchmark Spearman ρ ≥ 0.78<br/>• SciFact nDCG@10 ≥ 0.62<br/>• Banking77 Accuracy ≥ 0.77<br/>• ArxivClustering V-measure ≥ 0.32}
+    EMB_SLA -->|No| FAIL_EMB[FAIL: Embedding Quality Miss]
+    EMB_SLA -->|Yes| EMB_PAR{2. Embedding Parity Check<br/>Spyre vs sentence-transformers CPU<br/>• Cosine Similarity ≥ 0.9990<br/>• MTEB Score Δ ≤ 0.005}
+    EMB_PAR -->|No| FAIL_EMB_REG[FAIL: Embedding Parity Regression]
+    EMB_PAR -->|Yes| OPS_CHECK
+
+    %% Final Sign-off
+    OPS_CHECK --> OPS_RES{All Stability Criteria Met?}
+    OPS_RES -->|No| FAIL_OPS[FAIL: Server Crash / Memory Leak / Timeout]
+    OPS_RES -->|Yes| PASS_FINAL([PASS: Sign-off for Production / Release Certification])
+```
 
 #### Textual Accuracy Gating Thresholds
 * **Generative Decoders (`squad`, `triviaqa`, `gsm8k`, `xsum`, `wmt`)**:
