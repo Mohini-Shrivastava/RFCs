@@ -1,10 +1,13 @@
 # RFC: Model Quality Gating and Production Workload Accuracy Framework for IBM Z + Spyre
 
-* **Feature Name:** `model-quality-gating-and-workload-accuracy`
-* **Start Date:** 2026-11-03
-* **Target Release:** `torch-spyre v0.1.0 (RC11+)` / `vLLM Spyre Backend`
-* **Status:** Proposed
-* **RFC PR:** [#5980](https://github.com/torch-spyre/RFCs/pull/5980)
+Authors:
+
+Mohini Shrivastava
+Antoni Viros i Martin
+Ajit Samuel John
+
+Tracking issue: (https://github.com/torch-spyre/torch-spyre/issues/5980)
+
 
 ---
 
@@ -145,24 +148,6 @@ Applying the generic archetypes to current enterprise production workloads on IB
 
 ![Vision Quality Gating Flowchart](vision_quality_gating_flow.png)
 
-```mermaid
-flowchart TD
-    A[Start Vision Release Gate Run] --> B[Run Benchmark: DocVQA, ChartQA, MMMU]
-    B --> C{Sample Size Check}
-    C -->|< 100 Samples| D[Warning: Flag as Indicative / Smoke Test Only]
-    C -->|≥ 250 Samples| E[Valid Statistical Certification]
-    
-    E --> F{1. Absolute Quality Gate}
-    F -->|DocVQA ANLS < 0.80| R1[FAIL: Quality Below Threshold]
-    F -->|ChartQA ANLS < 0.45| R1
-    F -->|MMMU Accuracy < 0.38| R1
-    F -->|DocVQA Hallucination > 4%| R2[FAIL: Excessive Hallucination Rate]
-    
-    F -->|Pass| G{2. Release Parity vs Baseline}
-    G -->|Δ ANLS > 1.5%| R3[FAIL: Hardware / Image Regression]
-    G -->|Δ Accuracy > 2.0 pp| R3
-    G -->|Δ Score ≤ Tolerance| H[PASS: Sign-off for Production / Release Promotion]
-```
 
 #### Vision Accuracy Gating Thresholds
 | Benchmark Task | Primary Metric | Secondary Metric | Pass Threshold (Gemma 26B) | Pass Threshold (Granite 4B) | Target Tier |
@@ -177,47 +162,6 @@ flowchart TD
 ### 6.2 Textual Quality Flowchart
 
 ![Textual Quality Gating Flowchart](textual_quality_gating_flow.png)
-
-```mermaid
-flowchart TD
-    %% Entry Point
-    START([Start Textual Model Quality Gate Run]) --> TYPE{Select Model Architecture Track}
-
-    %% Track 1: Generative Decoders
-    TYPE -->|Generative Decoders<br/>e.g. Gemma 26B, Granite Instruct| DEC_RUN[Run Quality Pipeline Suite<br/>• squad, triviaqa, gsm8k, xsum, wmt<br/>• n ≥ 200 samples, seed 42]
-    
-    %% Track 2: Reasoning & Knowledge (LM-Eval)
-    TYPE -->|Reasoning & MCQ<br/>lm-eval-harness| LM_RUN[Run LM-Evaluation Suite<br/>• ARC-Easy, ARC-Challenge<br/>• HellaSwag, TruthfulQA, MMLU<br/>• 5-shot local completions]
-
-    %% Track 3: Embedding Encoders
-    TYPE -->|Embedding Encoders / MTEB<br/>e.g. Granite Embedding, MiniLM| EMB_RUN[Run MTEB Benchmark Suite<br/>• NFCorpus, SciFact IR<br/>• STS12, STSBenchmark STS<br/>• Banking77, ArxivClustering]
-
-    %% Generative Quality Gates
-    DEC_RUN --> DEC_SLA{1. Free-Text Quality Gate<br/>• squad EM ≥ 0.55 & ROUGE1 ≥ 0.80<br/>• gsm8k EM ≥ 0.48<br/>• triviaqa EM ≥ 0.45<br/>• xsum ROUGE1 ≥ 0.26<br/>• wmt METEOR ≥ 0.40}
-    DEC_SLA -->|No| FAIL_DEC[FAIL: Generative SLA Miss]
-    DEC_SLA -->|Yes| DEC_PAR{2. Baseline Parity Check<br/>Spyre vs CPU PyTorch<br/>• Mean Score Δ ≤ 1.5%<br/>• Greedy Token Alignment ≥ 99.5%}
-    DEC_PAR -->|No| FAIL_PAR[FAIL: Accelerator Parity Regression]
-    DEC_PAR -->|Yes| OPS_CHECK[3. Operational Stability Gate<br/>• 100% Request Completion<br/>• Zero Engine Restarts / Crashes<br/>• Throughput ≥ 3.5 tok/s]
-
-    %% LM-Eval Reasoning Gates
-    LM_RUN --> LM_SLA{1. LM-Eval Accuracy Gate<br/>• ARC-Easy acc_norm ≥ 62.0%<br/>• HellaSwag acc_norm ≥ 50.0%<br/>• ARC-Challenge acc_norm ≥ 38.0%<br/>• TruthfulQA acc ≥ 32.0%}
-    LM_SLA -->|No| FAIL_LM[FAIL: Reasoning Accuracy Miss]
-    LM_SLA -->|Yes| LM_PAR{2. RC Release Check<br/>RC_N vs RC_N-1<br/>• Δ acc_norm ≤ 2.0 pp}
-    LM_PAR -->|No| FAIL_LM_REG[FAIL: Release Regression]
-    LM_PAR -->|Yes| OPS_CHECK
-
-    %% MTEB Embedding Gates
-    EMB_RUN --> EMB_SLA{1. MTEB Quality Gate<br/>• STSBenchmark Spearman ρ ≥ 0.78<br/>• SciFact nDCG@10 ≥ 0.62<br/>• Banking77 Accuracy ≥ 0.77<br/>• ArxivClustering V-measure ≥ 0.32}
-    EMB_SLA -->|No| FAIL_EMB[FAIL: Embedding Quality Miss]
-    EMB_SLA -->|Yes| EMB_PAR{2. Embedding Parity Check<br/>Spyre vs sentence-transformers CPU<br/>• Cosine Similarity ≥ 0.9990<br/>• MTEB Score Δ ≤ 0.005}
-    EMB_PAR -->|No| FAIL_EMB_REG[FAIL: Embedding Parity Regression]
-    EMB_PAR -->|Yes| OPS_CHECK
-
-    %% Final Sign-off
-    OPS_CHECK --> OPS_RES{All Stability Criteria Met?}
-    OPS_RES -->|No| FAIL_OPS[FAIL: Server Crash / Memory Leak / Timeout]
-    OPS_RES -->|Yes| PASS_FINAL([PASS: Sign-off for Production / Release Certification])
-```
 
 #### Textual Accuracy Gating Thresholds
 * **Generative Decoders (`squad`, `triviaqa`, `gsm8k`, `xsum`, `wmt`)**:
@@ -270,11 +214,3 @@ $$\text{Hallucination Rate} = \frac{N_{\text{ungrounded spans}} + N_{\text{false
 
 ---
 
-## 10. References
-
-* **Quality Evaluation Master Test Plan:** [`TEST_PLAN.md`](TEST_PLAN.md)
-* **Quality Workflows Specification:** [`QUALITY_GATING_WORKFLOWS.md`](QUALITY_GATING_WORKFLOWS.md)
-* **Vision Evaluation Report (Gemma 26B RC11):** [`Reports/vision-eval-report-gemma-4-26b-on-ibm-z-spyre-rc11.html`](Reports/vision-eval-report-gemma-4-26b-on-ibm-z-spyre-rc11.html)
-* **Vision Evaluation Report (Granite Vision 4B RC11):** [`Reports/vision-eval-report-granite-vision-4.1-4b-on-ibm-z-spyre-rc11.html`](Reports/vision-eval-report-granite-vision-4.1-4b-on-ibm-z-spyre-rc11.html)
-* **Textual Evaluation Report (Gemma 26B RC6):** [`multimodal/evaluation-report-gemma-4-26b-a4b-it-on-ibm-z-spyre-rc6.html`](multimodal/evaluation-report-gemma-4-26b-a4b-it-on-ibm-z-spyre-rc6.html)
-* **Embedding Evaluation Report (Granite Embedding RC6):** [`multimodal/granite-embedding-evaluation-report-ibm-z-spyre-rc6.html`](multimodal/granite-embedding-evaluation-report-ibm-z-spyre-rc6.html)
