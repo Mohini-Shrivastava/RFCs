@@ -1,8 +1,9 @@
 # RFC: Model Quality Gating and Production Workload Accuracy Framework for IBM Z + Spyre
 
-**Authors**
-
- **** Mohini Shrivastava  Antoni Viros i Martin Ajit Samuel John ****
+**Authors:**
+- [Mohini Shrivastava](https://github.com/arielge)
+- [Antoni Viros i Martin](https://github.com/BenjSz)
+- [Ajit Samuel John](https://github.com/assaftibm)
 
 Tracking issue: (https://github.com/torch-spyre/torch-spyre/issues/5980)
 
